@@ -12,6 +12,7 @@ export default class CLIUI extends PluginBase {
   isThinking: boolean = false;
   prompt: string = "<User> ";
   pendingApproval?: ITalosApprovalRequest;
+  app?: ReturnType<typeof render>;
 
   desc() {
     return "You can interact with the user using UI tools and events. When the user asks you to do something, think about what information and/or details you need to do that. If you need something only the user can provide, you need to ask the user for that information. Ask the users about task details if the request is vague. Be proactive and update the user on your progress, milestones, and obstacles and how you are going to overcome them.";
@@ -79,6 +80,7 @@ export default class CLIUI extends PluginBase {
     agent.off("private-event", this.boundAgentPrivateEventHandler);
     agent.deregisterTool("ui/send-message");
     agent.deregisterEvent("ui/message-received");
+    this.app?.unmount();
   }
 
   agentPrivateEventHandler(event: string, args: Dict<any>) {
@@ -446,14 +448,17 @@ export default class CLIUI extends PluginBase {
   }
 
   renderUI() {
-    render(
-      React.createElement(App, {
-        onMessage: this.handleMessage.bind(this),
-        messages: this.messages,
-        prompt: this.prompt,
-        isThinking: this.isThinking,
-        pendingApproval: this.pendingApproval,
-      }),
-    );
+    const app = React.createElement(App, {
+      onMessage: this.handleMessage.bind(this),
+      messages: this.messages,
+      prompt: this.prompt,
+      isThinking: this.isThinking,
+      pendingApproval: this.pendingApproval,
+    });
+    if (this.app) {
+      this.app.rerender(app);
+      return;
+    }
+    this.app = render(app);
   }
 }
