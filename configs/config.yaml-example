@@ -1,0 +1,53 @@
+quiet: true
+audit_file: configs/talos-audit.jsonl
+
+privacy:
+  mode: local_first
+  audit:
+    enabled: true
+  approvals:
+    mode: blocking
+    allowlist: []
+  redaction:
+    sensitive_paths:
+      - .env
+      - configs/config.yaml
+    secret_keys:
+      - api_key
+      - token
+      - secret
+      - password
+      - authorization
+      - cookie
+
+private_store:
+  enabled: false
+  db_file: configs/talos-private-store.json
+  key_file: configs/talos-private-store.key
+  require_existing_key_file: false
+
+plugins:
+  cerebrum:
+    base_url: https://api.openai.com/v1
+    api_key: sk-proj-your-openai-api-key
+    model: gpt-4o
+    temperature: 0.5
+    image_supported: true
+    max_prompts: 50
+    max_event_strlen: 65536
+    max_tokens: 16384
+  clock:
+  http:
+  short-term-memory:
+  skills:
+    directory: skills
+  task:
+  generated-plugins:
+    directory: generated-plugins
+  talos:
+  file-system:
+  python:
+  shell:
+  browser:
+    headless: false
+  cli-ui:

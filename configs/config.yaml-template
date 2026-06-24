@@ -1,0 +1,108 @@
+states_file: configs/states.yaml
+log_file: configs/btl-talos-core.log
+audit_file: configs/talos-audit.jsonl
+workdir: /path/to/your/workdir
+quiet: false
+
+privacy:
+  mode: local_first
+  audit:
+    enabled: true
+  approvals:
+    mode: blocking
+    allowlist: []
+  redaction:
+    sensitive_paths:
+      - .env
+      - configs/config.yaml
+    secret_keys:
+      - api_key
+      - token
+      - secret
+      - password
+      - authorization
+      - cookie
+
+private_store:
+  enabled: false
+  db_file: configs/talos-private-store.json
+  key_file: configs/talos-private-store.key
+  require_existing_key_file: false
+
+plugins:
+  webapp-ui:
+    supabase:
+      url: https://your-supabase-url.supabase.co
+      anon_key: your-supabase-anon-key
+      email: your-email@example.com
+      otp: "123456"
+      files_bucket: your-files-bucket-name
+    context_id: your-context-id
+    shutdown_timeout: 300
+    port: 3000
+  cerebrum:
+    base_url: https://api.openai.com/v1
+    api_key: sk-proj-your-openai-api-key
+    model: gpt-4o
+    temperature: 0.5
+    image_supported: true
+    max_prompts: 50
+    max_event_strlen: 65536
+    max_tokens: 16384
+  telegram:
+    bot_token: your-telegram-bot-token
+    allowed_chat_ids:
+      - 1234567890
+      - 9876543210
+    admin_chat_ids:
+      - 1234567890
+    log_chat_ids:
+      - 1234567890
+  clock:
+  http:
+    jina:
+      base_url: https://s.jina.ai
+      api_key: your-jina-api-key
+  short-term-memory:
+  skills:
+    directory: skills
+  task:
+  generated-plugins:
+    directory: generated-plugins
+  llm:
+    base_url: https://api.openai.com/v1
+    api_key: sk-proj-your-openai-api-key
+    models:
+      chat:
+        - name: gpt-4o
+          desc: GPT-4o is good at general purpose tasks. Supports image input. Whenever you receive an image and need to understand it, pass it to this model using the image arg and ask about it.
+      image:
+        - name: dall-e-3
+          desc: DALL-E 3 is good at generating images. Whenever you are requested to generate images, use this model.
+  file-system:
+  python:
+  long-term-memory:
+    base_url: https://api.openai.com/v1
+    api_key: sk-proj-your-openai-api-key
+    vector_model: text-embedding-3-small
+    dimensions: 100
+    max_query_results: 3
+    persist_db: true
+    db_file: configs/long-term-memory.db
+  discord:
+    bot_token: your-discord-bot-token
+    allowed_channel_ids:
+      - "1234567890"
+      - "9876543210"
+    admin_channel_ids:
+      - "1234567890"
+    log_channel_ids:
+      - "1234567890"
+  shell:
+  amadeus:
+    client_id: your-amadeus-client-id
+    client_secret: your-amadeus-client-secret
+  talos:
+  browser:
+    headless: true
+  cli-ui:
