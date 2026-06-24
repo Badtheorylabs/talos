@@ -1,94 +1,48 @@
 import assert from "node:assert/strict";
-import fs from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import test from "node:test";
 
-import { Talos } from "../src/core/talos.js";
 import { redact } from "../src/core/privacy.js";
-
-async function makeAgent() {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "talos-test-"));
-  const agent = new Talos(
-    {
-      audit_file: path.join(dir, "audit.jsonl"),
-      privacy: {
-        audit: { enabled: true },
-        approvals: { allowlist: [] },
-      },
-    },
-    {},
-  );
-  return { agent, dir };
-}
+import { TalosHarness } from "./harness/talos-harness.js";
 
 test("read and network tools run without approval", async () => {
-  const { agent } = await makeAgent();
-  agent.registerTool(
-    {
-      name: "test/read",
-      desc: "Read something.",
-      risk: "read",
-      args: {},
-      retvals: { ok: { type: "boolean", desc: "OK.", required: true } },
-    },
-    { fn: async () => ({ ok: true }) },
-  );
-  agent.registerTool(
-    {
-      name: "test/network",
-      desc: "Network something.",
-      risk: "network",
-      args: {},
-      retvals: { ok: { type: "boolean", desc: "OK.", required: true } },
-    },
-    { fn: async () => ({ ok: true }) },
-  );
+  const harness = await TalosHarness.create();
+  harness.registerTool({ name: "test/read", risk: "read" });
+  harness.registerTool({ name: "test/network", risk: "network" });
 
-  assert.deepEqual(await agent.callTool("test/read", {}), { ok: true });
-  assert.deepEqual(await agent.callTool("test/network", {}), { ok: true });
-  assert.equal(agent.getApprovalSnapshot().active, undefined);
+  assert.deepEqual(await harness.callTool("test/read", {}), { ok: true });
+  assert.deepEqual(await harness.callTool("test/network", {}), { ok: true });
+  assert.equal(harness.agent.getApprovalSnapshot().active, undefined);
+  await harness.cleanup();
 });
 
 test("unannotated and risky tools require serialized approval", async () => {
-  const { agent } = await makeAgent();
+  const harness = await TalosHarness.create();
   for (const [name, risk] of [
     ["test/unknown", undefined],
     ["test/write", "write"],
     ["test/execute", "execute"],
     ["test/destructive", "destructive"],
   ] as const) {
-    agent.registerTool(
-      {
-        name,
-        desc: name,
-        risk,
-        args: {},
-        retvals: { ok: { type: "boolean", desc: "OK.", required: true } },
-      },
-      { fn: async () => ({ ok: true }) },
-    );
+    harness.registerTool({ name, risk });
   }
 
   const calls = [
-    agent.callTool("test/unknown", {}),
-    agent.callTool("test/write", {}),
-    agent.callTool("test/execute", {}),
-    agent.callTool("test/destructive", {}),
+    harness.callTool("test/unknown", {}),
+    harness.callTool("test/write", {}),
+    harness.callTool("test/execute", {}),
+    harness.callTool("test/destructive", {}),
   ];
 
-  while (
-    !agent.getApprovalSnapshot().active ||
-    agent.getApprovalSnapshot().queued.length < 3
-  ) {
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-  assert.equal(agent.getApprovalSnapshot().queued.length, 3);
+  await harness.waitForApprovalCounts(1, 3);
+  assert.deepEqual(
+    [
+      harness.agent.getApprovalSnapshot().active?.tool,
+      ...harness.agent.getApprovalSnapshot().queued.map((item) => item.tool),
+    ],
+    ["test/unknown", "test/write", "test/execute", "test/destructive"],
+  );
 
-  while (agent.getApprovalSnapshot().active) {
-    agent.decideApproval(agent.getApprovalSnapshot().active!.id, true);
-    await new Promise((resolve) => setImmediate(resolve));
-  }
+  await harness.drainApprovals(true);
 
   assert.deepEqual(await Promise.all(calls), [
     { ok: true },
@@ -96,29 +50,21 @@ test("unannotated and risky tools require serialized approval", async () => {
     { ok: true },
     { ok: true },
   ]);
+  await harness.cleanup();
 });
 
 test("denied tool calls reject and are audited", async () => {
-  const { agent } = await makeAgent();
-  agent.registerTool(
-    {
-      name: "test/write",
-      desc: "Write something.",
-      risk: "write",
-      args: {},
-      retvals: { ok: { type: "boolean", desc: "OK.", required: true } },
-    },
-    { fn: async () => ({ ok: true }) },
-  );
+  const harness = await TalosHarness.create();
+  harness.registerTool({ name: "test/write", risk: "write" });
 
-  const call = agent.callTool("test/write", {});
-  while (!agent.getApprovalSnapshot().active) {
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-  agent.decideApproval(agent.getApprovalSnapshot().active!.id, false);
+  const call = harness.callTool("test/write", {
+    token: "should-not-log",
+    file: "/tmp/work/.env",
+  });
+  await harness.denyNext();
 
   await assert.rejects(call, /denied/);
-  const audit = await agent.getAuditTail(10);
+  const audit = await harness.auditTail(10);
   assert.equal(
     audit.some((record) => record.kind === "approval"),
     true,
@@ -129,6 +75,9 @@ test("denied tool calls reject and are audited", async () => {
     ),
     true,
   );
+  assert.equal(JSON.stringify(audit).includes("should-not-log"), false);
+  assert.equal(JSON.stringify(audit).includes("/tmp/work/.env"), false);
+  await harness.cleanup();
 });
 
 test("redaction removes obvious secrets and sensitive paths", () => {

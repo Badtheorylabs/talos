@@ -284,13 +284,24 @@ export class Talos extends EventEmitter {
     }
     const risk = tool.risk ?? "unknown";
     const approvalRequired = this.isApprovalRequired(tool);
-    await this.audit.append({
-      kind: "tool_call",
-      tool: name,
-      risk,
-      summary: `Calling ${name}.`,
-      redactedArgs: redact(args, this.config),
-    });
+    let toolCallAuditError: unknown;
+    const toolCallAudit = this.audit
+      .append({
+        kind: "tool_call",
+        tool: name,
+        risk,
+        summary: `Calling ${name}.`,
+        redactedArgs: redact(args, this.config),
+      })
+      .catch((error) => {
+        toolCallAuditError = error;
+      });
+    const finishToolCallAudit = async () => {
+      await toolCallAudit;
+      if (toolCallAuditError) {
+        throw toolCallAuditError;
+      }
+    };
     if (approvalRequired) {
       const approved = await this.requestApproval({
         tool: name,
@@ -298,6 +309,7 @@ export class Talos extends EventEmitter {
         args,
         summary: tool.explain_args?.(args).summary ?? `Approve ${name}?`,
       });
+      await finishToolCallAudit();
       await this.audit.append({
         kind: "approval",
         tool: name,
@@ -309,6 +321,8 @@ export class Talos extends EventEmitter {
       if (!approved) {
         throw new Error(`Tool call denied by user: ${name}`);
       }
+    } else {
+      await finishToolCallAudit();
     }
     if (tool.explain_args) {
       this.emitPrivateEvent("talos/tool-call", tool.explain_args(args));
