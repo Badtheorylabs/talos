@@ -15,10 +15,29 @@ export default class Task extends PluginBase {
   tasks: ITaskBoundary[] = [];
 
   desc() {
-    return "Use task/start and task/complete to mark explicit task boundaries. Only use task/reflect after a task is complete or when the user explicitly asks for reflection.";
+    return "Use task/start and task/complete to mark explicit task boundaries. Only use task/reflect after a task is complete or when the user explicitly asks for reflection. Reflections can propose a reusable skill draft when a workflow should be learned.";
   }
 
   async load(agent: Talos) {
+    agent.registerTool(
+      {
+        name: "task/list",
+        desc: "List explicit task boundaries.",
+        risk: "read",
+        args: {},
+        retvals: {
+          tasks: {
+            type: "array",
+            desc: "Tasks.",
+            required: true,
+          },
+        },
+      },
+      {
+        fn: async () => ({ tasks: this.tasks }),
+      },
+    );
+
     agent.registerTool(
       {
         name: "task/start",
@@ -102,11 +121,26 @@ export default class Task extends PluginBase {
             desc: "Reflection text.",
             required: true,
           },
+          proposed_skill_name: {
+            type: "string",
+            desc: "Optional draft skill name to create from this reflection.",
+            required: false,
+          },
+          proposed_skill_content: {
+            type: "string",
+            desc: "Optional draft skill markdown to create from this reflection.",
+            required: false,
+          },
         },
         retvals: {
           status: {
             type: "string",
             desc: "Status.",
+            required: true,
+          },
+          skill_draft_created: {
+            type: "boolean",
+            desc: "Whether a skill draft was created.",
             required: true,
           },
         },
@@ -121,13 +155,25 @@ export default class Task extends PluginBase {
             throw new Error("Task must be completed before reflection.");
           }
           task.reflection = args.reflection;
-          return { status: "success" };
+          let skillDraftCreated = false;
+          if (args.proposed_skill_name && args.proposed_skill_content) {
+            if (!("skills/create-draft" in agent.tools)) {
+              throw new Error("Skills plugin is not loaded.");
+            }
+            await agent.callTool("skills/create-draft", {
+              name: args.proposed_skill_name,
+              content: args.proposed_skill_content,
+            });
+            skillDraftCreated = true;
+          }
+          return { status: "success", skill_draft_created: skillDraftCreated };
         },
       },
     );
   }
 
   async unload(agent: Talos) {
+    agent.deregisterTool("task/list");
     agent.deregisterTool("task/start");
     agent.deregisterTool("task/complete");
     agent.deregisterTool("task/reflect");

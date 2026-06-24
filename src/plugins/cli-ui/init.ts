@@ -216,6 +216,10 @@ export default class CLIUI extends PluginBase {
       await this.handleMemoryCommand(parts);
       return;
     }
+    if (name === "/task") {
+      await this.handleTaskCommand(parts);
+      return;
+    }
     this.addMessage("agent", `Unknown command: ${name}`);
   }
 
@@ -314,7 +318,7 @@ export default class CLIUI extends PluginBase {
           this.addMessage(
             "agent",
             typedResult.list
-              .map((item: Dict<any>, index: number) => `${index}: ${item.desc}`)
+              .map((item: Dict<any>) => `${item.id}: ${item.desc}`)
               .join("\n") || "No long-term memories.",
           );
           return;
@@ -337,28 +341,29 @@ export default class CLIUI extends PluginBase {
         return;
       }
       if (action === "show") {
-        const index = Number(parts[1]);
-        if (!Number.isFinite(index)) {
-          this.addMessage("agent", "Usage: /memory show <index>");
+        const id = parts[1];
+        if (!id) {
+          this.addMessage("agent", "Usage: /memory show <id>");
           return;
         }
         const result = (await this.agent.callTool("ltm/list", {})) as Dict<any>;
-        this.addMessage(
-          "agent",
-          JSON.stringify(result.list[index] ?? null, null, 2),
-        );
+        const memory = result.list.find((item: Dict<any>) => item.id === id);
+        this.addMessage("agent", JSON.stringify(memory ?? null, null, 2));
         return;
       }
       if (action === "delete") {
-        this.addMessage(
-          "agent",
-          "Memory delete is not available yet for vector memory; deprecation/removal needs stable memory IDs first.",
-        );
+        const id = parts[1];
+        if (!id) {
+          this.addMessage("agent", "Usage: /memory delete <id>");
+          return;
+        }
+        await this.agent.callTool("ltm/delete", { id });
+        this.addMessage("agent", `Memory ${id} deleted.`);
         return;
       }
       this.addMessage(
         "agent",
-        "Usage: /memory list | /memory show <index> | /memory delete <index>",
+        "Usage: /memory list | /memory show <id> | /memory delete <id>",
       );
     } catch (error: any) {
       this.addMessage("agent", `Memory command failed: ${error.message}`);
@@ -374,6 +379,69 @@ export default class CLIUI extends PluginBase {
       return `Private store: ${status.file} (key: ${status.key_file})`;
     } catch (error: any) {
       return `Private store: unavailable (${error.message})`;
+    }
+  }
+
+  async handleTaskCommand(parts: string[]) {
+    const action = parts[0] ?? "list";
+    try {
+      if (action === "list") {
+        const result = (await this.agent.callTool(
+          "task/list",
+          {},
+        )) as Dict<any>;
+        this.addMessage(
+          "agent",
+          result.tasks
+            .map(
+              (task: Dict<any>) =>
+                `${task.id} ${task.status} ${task.title}${
+                  task.reflection ? " (reflected)" : ""
+                }`,
+            )
+            .join("\n") || "No tasks.",
+        );
+        return;
+      }
+      if (action === "start") {
+        const title = parts.slice(1).join(" ").trim();
+        if (!title) {
+          this.addMessage("agent", "Usage: /task start <title>");
+          return;
+        }
+        const result = (await this.agent.callTool("task/start", {
+          title,
+        })) as Dict<any>;
+        this.addMessage("agent", `Task started: ${result.id}`);
+        return;
+      }
+      if (action === "complete") {
+        const id = parts[1];
+        if (!id) {
+          this.addMessage("agent", "Usage: /task complete <id>");
+          return;
+        }
+        await this.agent.callTool("task/complete", { id });
+        this.addMessage("agent", `Task completed: ${id}`);
+        return;
+      }
+      if (action === "reflect") {
+        const id = parts[1];
+        const reflection = parts.slice(2).join(" ").trim();
+        if (!id || !reflection) {
+          this.addMessage("agent", "Usage: /task reflect <id> <reflection>");
+          return;
+        }
+        await this.agent.callTool("task/reflect", { id, reflection });
+        this.addMessage("agent", `Task reflected: ${id}`);
+        return;
+      }
+      this.addMessage(
+        "agent",
+        "Usage: /task list | /task start <title> | /task complete <id> | /task reflect <id> <reflection>",
+      );
+    } catch (error: any) {
+      this.addMessage("agent", `Task command failed: ${error.message}`);
     }
   }
 

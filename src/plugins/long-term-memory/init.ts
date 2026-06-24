@@ -1,5 +1,6 @@
 import { Talos, Dict } from "../../core/talos.js";
 import { PluginBase } from "../plugin-base.js";
+import { makeId } from "../../core/privacy.js";
 import { load } from "sqlite-vec";
 import { DatabaseSync } from "node:sqlite";
 import OpenAI from "openai";
@@ -37,13 +38,14 @@ export default class LongTermMemory extends PluginBase {
       CREATE VIRTUAL TABLE IF NOT EXISTS vec_items USING 
       vec0(
         embedding float[${this.config.dimensions}],
+        id text,
         desc text,
         data text
       )
     `);
 
     const insertStmt = this.db.prepare(
-      "INSERT INTO vec_items(embedding, desc, data) VALUES (?, ?, ?)",
+      "INSERT INTO vec_items(embedding, id, desc, data) VALUES (?, ?, ?, ?)",
     );
 
     this.openai = new OpenAI({
@@ -71,6 +73,11 @@ export default class LongTermMemory extends PluginBase {
           },
         },
         retvals: {
+          id: {
+            type: "string",
+            desc: "The stable memory ID.",
+            required: true,
+          },
           status: {
             type: "string",
             desc: "The status of the operation.",
@@ -80,6 +87,7 @@ export default class LongTermMemory extends PluginBase {
       },
       {
         fn: async (args: Dict<any>) => {
+          const id = makeId("mem");
           const embedding = await this.openai.embeddings.create({
             model: this.config.vector_model,
             dimensions: this.config.dimensions,
@@ -93,14 +101,14 @@ export default class LongTermMemory extends PluginBase {
           );
           insertStmt.run(
             Float32Array.from(embedding.data[0].embedding),
+            id,
             args.desc,
             JSON.stringify(args.data),
           );
-          return { status: "success" };
+          return { id, status: "success" };
         },
       },
     );
-    // TODO: Implement remove
     agent.registerTool(
       {
         name: "ltm/list",
@@ -117,6 +125,11 @@ export default class LongTermMemory extends PluginBase {
               desc: "The metadata of the long-term memory.",
               required: false,
               of: {
+                id: {
+                  type: "string",
+                  desc: "The stable memory ID.",
+                  required: true,
+                },
                 desc: {
                   type: "string",
                   desc: "The description of the data.",
@@ -130,10 +143,11 @@ export default class LongTermMemory extends PluginBase {
       {
         fn: async (args: Dict<any>) => {
           const list = this.db
-            .prepare("SELECT desc, data FROM vec_items")
+            .prepare("SELECT id, desc, data FROM vec_items")
             .all();
           return {
             list: list.map((item) => ({
+              id: String(item.id),
               desc: String(item.desc),
               data: JSON.parse(String(item.data)),
             })),
@@ -164,6 +178,11 @@ export default class LongTermMemory extends PluginBase {
               desc: "The desc and data of the long-term memory.",
               required: false,
               of: {
+                id: {
+                  type: "string",
+                  desc: "The stable memory ID.",
+                  required: true,
+                },
                 desc: {
                   type: "string",
                   desc: "The description of the data.",
@@ -196,6 +215,7 @@ export default class LongTermMemory extends PluginBase {
             .prepare(
               `SELECT 
             distance,
+            id,
             desc, 
             data
           FROM vec_items 
@@ -213,11 +233,39 @@ export default class LongTermMemory extends PluginBase {
                 throw new Error("Invalid result format");
               }
               return {
+                id: String(result.id),
                 desc: String(result.desc),
                 data: JSON.parse(String(result.data)),
               };
             }),
           };
+        },
+      },
+    );
+    agent.registerTool(
+      {
+        name: "ltm/delete",
+        desc: "Delete a long-term memory by stable ID.",
+        risk: "destructive",
+        args: {
+          id: {
+            type: "string",
+            desc: "The stable memory ID.",
+            required: true,
+          },
+        },
+        retvals: {
+          status: {
+            type: "string",
+            desc: "The status of the operation.",
+            required: true,
+          },
+        },
+      },
+      {
+        fn: async (args) => {
+          this.db.prepare("DELETE FROM vec_items WHERE id = ?").run(args.id);
+          return { status: "success" };
         },
       },
     );
@@ -227,6 +275,7 @@ export default class LongTermMemory extends PluginBase {
     agent.deregisterTool("ltm/store");
     agent.deregisterTool("ltm/list");
     agent.deregisterTool("ltm/retrieve");
+    agent.deregisterTool("ltm/delete");
   }
 
   state() {

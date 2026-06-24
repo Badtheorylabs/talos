@@ -14,6 +14,7 @@
     "fast-build": "swc src -d dist --strip-leading-paths",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts",
     "lint": "prettier --check .",
     "lint:fix": "prettier --write ."
   },
