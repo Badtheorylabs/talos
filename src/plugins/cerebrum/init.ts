@@ -32,6 +32,7 @@ export default class Cerebrum extends PluginBase {
   prompts: Array<ChatCompletionMessageParam> = [];
   eventQueue: Array<IEvent> = [];
   imageUrls: Array<string> = [];
+  modelUnavailable: boolean = false;
   boundAgentEventHandler!: (name: string, args: Dict<any>) => void;
   boundAgentPrivateEventHandler!: (name: string, args: Dict<any>) => void;
   processEventQueueTimer?: NodeJS.Timeout;
@@ -118,6 +119,13 @@ export default class Cerebrum extends PluginBase {
   }
 
   pushEvent(event: IEvent) {
+    if (this.modelUnavailable) {
+      this.agent.emitPrivateEvent("cerebrum/error", {
+        content:
+          "Model calls are paused after an unrecoverable provider error. Fix the model config/API key and restart Talos.",
+      });
+      return;
+    }
     event.args = this.sanitizeEventArgs(event.args);
     this.logger.info(this.eventToPrompt(event), {
       type: "event",
@@ -276,14 +284,19 @@ export default class Cerebrum extends PluginBase {
       }
     } catch (e: any) {
       this.logger.error(e);
+      this.eventQueue = this.eventQueue.slice(eventQueueSnapshot.length);
+      this.imageUrls = this.imageUrls.slice(imageUrlsSnapshot.length);
       this.agent.emitPrivateEvent("cerebrum/error", {
-        content: e.message,
+        content: this.modelErrorMessage(e),
       });
       if (e.message.includes("maximum context length")) {
         this.prompts.splice(1, 1);
       }
+      if (this.isUnrecoverableModelError(e)) {
+        this.modelUnavailable = true;
+      }
     } finally {
-      if (this.eventQueue.length > 0) {
+      if (!this.modelUnavailable && this.eventQueue.length > 0) {
         this.processEventQueueWithDelay();
       }
       this.agent.emitPrivateEvent("cerebrum/busy", {
@@ -291,6 +304,18 @@ export default class Cerebrum extends PluginBase {
       });
       this.busy = false;
     }
+  }
+
+  isUnrecoverableModelError(error: any) {
+    const status = error?.status ?? error?.code;
+    return status === 401 || status === 403;
+  }
+
+  modelErrorMessage(error: any) {
+    if (this.isUnrecoverableModelError(error)) {
+      return `${error.message} Model calls are paused until you fix the model config/API key and restart Talos.`;
+    }
+    return error.message;
   }
 
   async ensureInitialPrompt(prompts: Array<ChatCompletionMessageParam>) {

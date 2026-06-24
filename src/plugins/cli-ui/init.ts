@@ -2,6 +2,7 @@ import { render } from "ink";
 import React from "react";
 import { Talos, Dict } from "../../core/talos.js";
 import { ITalosApprovalRequest } from "../../core/talos.js";
+import { redact } from "../../core/privacy.js";
 import { PluginBase } from "../plugin-base.js";
 import { App, type Message } from "./components/App.js";
 
@@ -92,7 +93,7 @@ export default class CLIUI extends PluginBase {
         this.addMessage("agent", response);
       }
     } else if (event === "cerebrum/error") {
-      this.addMessage("event", `Model error: ${args.content}`);
+      this.addMessage("event", `Model error: ${this.redactText(args.content)}`);
     } else if (event === "talos/tool-call") {
       this.addMessage("tool-call", args.summary);
     } else if (event === "talos/tool-result") {
@@ -123,6 +124,10 @@ export default class CLIUI extends PluginBase {
       .replace(/<thinking>[\s\S]*?<\/thinking>/g, "")
       .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "")
       .trim();
+  }
+
+  redactText(content: string) {
+    return String(redact(content, this.agent.config));
   }
 
   addMessage(type: Message["type"], content: string) {
