@@ -2,7 +2,6 @@ import fs from "fs";
 
 import image2uri from "image2uri";
 import { jsonrepair } from "jsonrepair";
-import OpenAI from "openai";
 import {
   ChatCompletionContentPart,
   ChatCompletionMessageParam,
@@ -27,7 +26,7 @@ interface IEvent {
 
 export default class Cerebrum extends PluginBase {
   agent!: Talos;
-  openai!: OpenAI;
+  apiKey!: string;
   busy: boolean = false;
   prompts: Array<ChatCompletionMessageParam> = [];
   eventQueue: Array<IEvent> = [];
@@ -44,11 +43,7 @@ export default class Cerebrum extends PluginBase {
       endpoints: [this.config.base_url],
       sendsUserData: true,
     });
-    this.openai = new OpenAI({
-      baseURL: this.config.base_url,
-      apiKey: this.config.api_key,
-      defaultHeaders: openaiDefaultHeaders,
-    });
+    this.apiKey = this.config.api_key;
     this.boundAgentEventHandler = this.agentEventHandler.bind(this);
     this.boundAgentPrivateEventHandler =
       this.agentPrivateEventHandler.bind(this);
@@ -143,11 +138,7 @@ export default class Cerebrum extends PluginBase {
 
   agentPrivateEventHandler(name: string, args: Dict<any>) {
     if (name === "webapp-ui/token-refreshed") {
-      this.openai = new OpenAI({
-        baseURL: this.config.base_url,
-        apiKey: args.token,
-        defaultHeaders: openaiDefaultHeaders,
-      });
+      this.apiKey = args.token;
     }
   }
 
@@ -198,7 +189,7 @@ export default class Cerebrum extends PluginBase {
       this.agent.emitPrivateEvent("cerebrum/busy", {
         busy: true,
       });
-      const completion = await this.openai.chat.completions.create({
+      const completion = await this.createChatCompletion({
         messages: promptsSnapshot,
         model: this.config.model,
         temperature: this.config.temperature,
@@ -316,6 +307,67 @@ export default class Cerebrum extends PluginBase {
       return `${error.message} Model calls are paused until you fix the model config/API key and restart Talos.`;
     }
     return error.message;
+  }
+
+  async createChatCompletion(args: {
+    messages: ChatCompletionMessageParam[];
+    model: string;
+    temperature?: number;
+    stop: string[];
+    max_tokens?: number;
+  }) {
+    const url = `${String(this.config.base_url).replace(
+      /\/$/,
+      "",
+    )}/chat/completions`;
+    const tokenLimit =
+      this.config.max_completion_tokens ?? args.max_tokens ?? undefined;
+    const body: Dict<any> = {
+      messages: args.messages,
+      model: args.model,
+    };
+
+    if (!this.usesMaxCompletionTokens(args.model)) {
+      body.temperature = args.temperature;
+      body.stop = args.stop;
+    }
+    if (tokenLimit !== undefined) {
+      if (this.usesMaxCompletionTokens(args.model)) {
+        body.max_completion_tokens = tokenLimit;
+      } else {
+        body.max_tokens = tokenLimit;
+      }
+    }
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        ...openaiDefaultHeaders,
+        authorization: `Bearer ${this.apiKey}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    const text = await response.text();
+    let json: Dict<any> = {};
+    try {
+      json = JSON.parse(text);
+    } catch {}
+    if (!response.ok) {
+      const error = new Error(
+        json.error?.message ??
+          text ??
+          `Model request failed: ${response.status}`,
+      ) as Error & { status?: number; type?: string };
+      error.status = response.status;
+      error.type = json.error?.type;
+      throw error;
+    }
+    return json;
+  }
+
+  usesMaxCompletionTokens(model: string) {
+    return /^(gpt-5|o1|o3|o4)/.test(model);
   }
 
   async ensureInitialPrompt(prompts: Array<ChatCompletionMessageParam>) {
