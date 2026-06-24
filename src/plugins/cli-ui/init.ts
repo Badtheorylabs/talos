@@ -86,6 +86,13 @@ export default class CLIUI extends PluginBase {
   agentPrivateEventHandler(event: string, args: Dict<any>) {
     if (event === "cerebrum/thinking") {
       this.addMessage("thinking", args.content);
+    } else if (event === "cerebrum/model-response") {
+      const response = this.visibleModelResponse(args.content);
+      if (response) {
+        this.addMessage("agent", response);
+      }
+    } else if (event === "cerebrum/error") {
+      this.addMessage("event", `Model error: ${args.content}`);
     } else if (event === "talos/tool-call") {
       this.addMessage("tool-call", args.summary);
     } else if (event === "talos/tool-result") {
@@ -109,6 +116,13 @@ export default class CLIUI extends PluginBase {
         `Approval ${args.id} ${args.approved ? "approved" : "denied"}.`,
       );
     }
+  }
+
+  visibleModelResponse(content: string) {
+    return content
+      .replace(/<thinking>[\s\S]*?<\/thinking>/g, "")
+      .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, "")
+      .trim();
   }
 
   addMessage(type: Message["type"], content: string) {
