@@ -80,20 +80,35 @@ const main = async () => {
   await agent.loadPlugins();
 
   let exiting = false;
-  const cleanup = async (event: string) => {
+  const cleanup = async (event: string, exitCode?: number) => {
     if (exiting) {
       return;
     }
     exiting = true;
     logger.warn(`${event} triggered, cleaning up...`);
-    await saveStates(agent, true);
-    await agent.unloadPlugins();
-    logger.info("Talos is unloaded");
+    const forceExitTimer =
+      exitCode === undefined
+        ? undefined
+        : setTimeout(() => process.exit(exitCode), 3000).unref();
+    try {
+      await saveStates(agent, true);
+      await agent.unloadPlugins();
+      logger.info("Talos is unloaded");
+    } catch (error) {
+      logger.error(`Talos cleanup failed: ${error}`);
+    } finally {
+      if (forceExitTimer) {
+        clearTimeout(forceExitTimer);
+      }
+      if (exitCode !== undefined) {
+        process.exit(exitCode);
+      }
+    }
   };
 
-  process.on("SIGINT", () => cleanup("SIGINT"));
-  process.on("SIGTERM", () => cleanup("SIGTERM"));
-  process.on("SIGHUP", () => cleanup("SIGHUP"));
+  process.on("SIGINT", () => cleanup("SIGINT", 130));
+  process.on("SIGTERM", () => cleanup("SIGTERM", 143));
+  process.on("SIGHUP", () => cleanup("SIGHUP", 129));
   process.on("beforeExit", () => cleanup("beforeExit"));
 
   let reloading = false;

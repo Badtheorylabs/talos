@@ -464,6 +464,7 @@ export default class CLIUI extends PluginBase {
   renderUI() {
     const app = React.createElement(App, {
       onMessage: this.handleMessage.bind(this),
+      onExit: () => process.kill(process.pid, "SIGINT"),
       messages: this.messages,
       prompt: this.prompt,
       isThinking: this.isThinking,

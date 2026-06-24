@@ -10,6 +10,7 @@ export interface Message {
 
 interface AppProps {
   onMessage: (content: string) => void;
+  onExit: () => void;
   messages: Message[];
   prompt: string;
   isThinking: boolean;
@@ -18,6 +19,7 @@ interface AppProps {
 
 export const App: React.FC<AppProps> = ({
   onMessage,
+  onExit,
   messages,
   prompt,
   isThinking,
@@ -35,6 +37,7 @@ export const App: React.FC<AppProps> = ({
     // Handle Ctrl+C
     if (key.ctrl && char === "c") {
       exit();
+      onExit();
       return;
     }
 
